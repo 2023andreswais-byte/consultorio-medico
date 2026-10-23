@@ -1,0 +1,120 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#f5f7fb">
+  <meta name="description" content="Consultor Médico: asistente para resolver dudas sobre trámites y temas médicos.">
+  <title>Consultor Médico | Asistente virtual</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <main class="app">
+    <header class="encabezado">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 48 48" fill="none">
+          <rect x="3" y="3" width="42" height="42" rx="14" fill="#dce8ff"/>
+          <path d="M24 12v24M12 24h24" stroke="#315fbd"
+            stroke-width="4" stroke-linecap="round"/>
+        </svg>
+      </div>
+
+      <div class="encabezado-texto">
+        <h1>Consultor Médico</h1>
+        <p>Tu asistente para consultas y trámites</p>
+      </div>
+
+      <div class="estado-agente">
+        <span class="punto-estado"></span>
+        Asistente virtual
+      </div>
+    </header>
+
+    <section class="zona-principal">
+
+      <!-- Zona de chat -->
+      <section class="zona-chat" aria-label="zona de chat">
+        <div class="chat-titulo">
+          <h2>zona de chat</h2>
+          <p>Escribí tu consulta y recibí orientación.</p>
+        </div>
+
+        <div
+          id="mensajes"
+          class="mensajes"
+          role="log"
+          aria-live="polite"
+          aria-relevant="additions text"
+          aria-label="Conversación"
+        >
+          <article class="mensaje mensaje-agente">
+            <div class="avatar" aria-hidden="true">CM</div>
+            <div class="contenido-mensaje">
+              <span class="nombre-emisor">Consultor Médico</span>
+              <div class="burbuja">
+                ¡Hola! Soy tu asistente virtual. Puedo orientarte
+                con dudas sobre trámites, turnos, documentación
+                y otros temas relacionados con la atención médica.
+                <br><br>
+                ¿En qué puedo ayudarte?
+              </div>
+              <time class="hora-mensaje"></time>
+            </div>
+          </article>
+        </div>
+
+        <div id="estado-chat" class="estado-chat" role="status"
+          aria-live="polite"></div>
+      </section>
+
+      <!-- Zona de escritura -->
+      <section class="zona-escritura" aria-label="zona de escritura">
+        <form id="formulario-chat">
+          <label for="entrada-mensaje">zona de escritura</label>
+
+          <div class="entrada-contenedor">
+            <textarea
+              id="entrada-mensaje"
+              name="mensaje"
+              placeholder="Escribí tu consulta aquí..."
+              rows="1"
+              maxlength="2000"
+              required
+              aria-describedby="ayuda-entrada"
+            ></textarea>
+
+            <button id="boton-enviar" type="submit"
+              aria-label="Enviar mensaje" title="Enviar mensaje">
+              <svg viewBox="0 0 24 24" fill="none"
+                aria-hidden="true">
+                <path d="M12 19V5M5 12l7-7 7 7"
+                  stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="ayuda-entrada">
+            <span id="ayuda-entrada">
+              Enter para enviar · Shift + Enter para nueva línea
+            </span>
+            <span id="contador">0/2000</span>
+          </div>
+        </form>
+
+        <p class="aviso">
+          Este asistente ofrece orientación general y no reemplaza
+          la evaluación de un profesional de la salud.
+        </p>
+      </section>
+    </section>
+
+    <footer class="pie">
+      Consultor Médico · Asistente informativo
+    </footer>
+  </main>
+</body>
+</html>
