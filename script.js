@@ -1,4 +1,3 @@
-
 "use strict";
 
 // Elementos de la interfaz.
@@ -10,13 +9,58 @@ const estadoChat = document.getElementById("estado-chat");
 const contador = document.getElementById("contador");
 
 // Configuración de seguridad y tiempos.
-const TIEMPO_LIMITE = 20000;
-const ESPERA_ENTRE_ENVIOS = 1200;
-const MAX_CARACTERES = 2000;
+const TIEMPO_LIMITE = 30000;
+const ESPERA_ENTRE_ENVIOS = 1500;
+const MAX_CARACTERES = 500;
+const CLAVE_SESION = "consultor_medico_session_id";
 
 let enviando = false;
 let ultimoEnvio = 0;
 let mensajeCarga = null;
+let sessionIdMemoria = null;
+
+// Generar o recuperar el identificador único de sesión.
+function obtenerSessionId() {
+  if (sessionIdMemoria) {
+    return sessionIdMemoria;
+  }
+
+  try {
+    const guardado = localStorage.getItem(CLAVE_SESION);
+    if (guardado) {
+      sessionIdMemoria = guardado;
+      return guardado;
+    }
+  } catch (error) {
+    // Continuar usando memoria si localStorage no está disponible.
+  }
+
+  const nuevoId = (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+
+  sessionIdMemoria = nuevoId;
+
+  try {
+    localStorage.setItem(CLAVE_SESION, nuevoId);
+  } catch (error) {
+    // Ignorar error de almacenamiento.
+  }
+
+  return nuevoId;
+}
+
+const sessionId = obtenerSessionId();
+
+// Verificar si la URL del webhook está configurada.
+function webhookConfigurado() {
+  if (typeof WEBHOOK_URL !== "string") return false;
+  const url = WEBHOOK_URL.trim();
+  if (!url || url.includes("ACA VA") || url.includes("ejemplo-webhook-prueba")) {
+    return false;
+  }
+  return true;
+}
 
 // Mostrar la hora local de un mensaje.
 function obtenerHora() {
@@ -104,37 +148,72 @@ entrada.addEventListener("keydown", (evento) => {
   }
 });
 
-// Obtener el texto de respuesta del webhook.
-function extraerRespuesta(datos) {
-  if (typeof datos === "string" && datos.trim()) {
-    return datos.trim();
+// Limpiar bloques Markdown (```json ... ```) del texto recibido.
+function limpiarMarkdown(texto) {
+  return texto
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
+// Buscar el primer campo válido en el objeto analizado.
+function buscarCampoRespuesta(objeto) {
+  const campos = ["response", "respuesta", "message", "mensaje"];
+  for (const campo of campos) {
+    if (typeof objeto[campo] === "string" && objeto[campo].trim()) {
+      return objeto[campo].trim();
+    }
+  }
+  return "Make respondió, pero sin el campo response";
+}
+
+// Extraer respuesta si el JSON tiene saltos de línea sin escapar.
+function recuperarJsonMalformado(texto) {
+  try {
+    const escapado = texto.replace(/\r?\n/g, "\\n");
+    const datos = JSON.parse(escapado);
+    if (datos && typeof datos === "object" && !Array.isArray(datos)) {
+      return buscarCampoRespuesta(datos);
+    }
+  } catch (error) {
+    // Si sigue fallando, intentar extraer por expresión regular.
   }
 
-  if (datos && typeof datos === "object") {
-    const posiblesCampos = [
-      "respuesta",
-      "response",
-      "mensaje",
-      "message",
-      "output",
-      "text"
-    ];
-
-    for (const campo of posiblesCampos) {
-      if (
-        typeof datos[campo] === "string" &&
-        datos[campo].trim()
-      ) {
-        return datos[campo].trim();
-      }
+  const campos = ["response", "respuesta", "message", "mensaje"];
+  for (const campo of campos) {
+    const regex = new RegExp(`"${campo}"\\s*:\\s*"([\\s\\S]*?)"\\s*(?:,|\\})`);
+    const coincidencia = texto.match(regex);
+    if (coincidencia && coincidencia[1].trim()) {
+      return coincidencia[1].replace(/\\n/g, "\n").trim();
     }
   }
 
-  throw new Error("El webhook no devolvió una respuesta válida.");
+  return "Make respondió, pero sin el campo response";
+}
+
+// Procesar la respuesta en texto plano o JSON de Make.
+function procesarTextoRespuesta(textoCrudo) {
+  const limpio = limpiarMarkdown(textoCrudo);
+  if (!limpio) {
+    return "(respuesta vacía)";
+  }
+
+  try {
+    const datos = JSON.parse(limpio);
+    if (datos !== null && typeof datos === "object" && !Array.isArray(datos)) {
+      return buscarCampoRespuesta(datos);
+    }
+    return limpio;
+  } catch (error) {
+    if (limpio.startsWith("{") && limpio.endsWith("}")) {
+      return recuperarJsonMalformado(limpio);
+    }
+    return limpio;
+  }
 }
 
 // Solicitar una respuesta al webhook.
-async function consultarAgente(texto) {
+async function consultarAgente(mensaje) {
   const controlador = new AbortController();
   const temporizador = setTimeout(
     () => controlador.abort(),
@@ -145,31 +224,31 @@ async function consultarAgente(texto) {
     const respuesta = await fetch(WEBHOOK_URL, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json"
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        mensaje: texto,
-        agente: "consultor medico",
+        sessionId,
+        mensaje,
         fecha: new Date().toISOString()
       }),
       signal: controlador.signal
     });
 
+    const texto = (await respuesta.text()).trim();
+
     if (!respuesta.ok) {
-      throw new Error(`Error HTTP ${respuesta.status}.`);
+      const errorServidor = new Error(
+        `Make respondió con error (código ${respuesta.status}). Revisá que tu escenario esté en Active o que hayas apretado Run once.`
+      );
+      errorServidor.esErrorServidor = true;
+      throw errorServidor;
     }
 
-    const tipoContenido = respuesta.headers.get("content-type") || "";
-    let datos;
-
-    if (tipoContenido.includes("application/json")) {
-      datos = await respuesta.json();
-    } else {
-      datos = await respuesta.text();
+    if (!texto) {
+      return "(respuesta vacía)";
     }
 
-    return extraerRespuesta(datos);
+    return procesarTextoRespuesta(texto);
   } finally {
     clearTimeout(temporizador);
   }
@@ -179,8 +258,13 @@ async function consultarAgente(texto) {
 formulario.addEventListener("submit", async (evento) => {
   evento.preventDefault();
 
-  // Impedir envíos simultáneos o mensajes vacíos.
   if (enviando) return;
+
+  // Validar configuración de la URL antes de hacer el envío.
+  if (!webhookConfigurado()) {
+    mostrarEstado("Falta pegar la URL de tu webhook en config.js");
+    return;
+  }
 
   const texto = entrada.value.trim();
 
@@ -191,20 +275,18 @@ formulario.addEventListener("submit", async (evento) => {
   }
 
   if (texto.length > MAX_CARACTERES) {
-    mostrarEstado("La consulta supera el límite permitido.");
+    mostrarEstado(`La consulta supera el límite de ${MAX_CARACTERES} caracteres.`);
     return;
   }
 
-  // Aplicar una espera mínima entre envíos.
+  // Aplicar una espera mínima de 1,5 segundos entre envíos.
   const ahora = Date.now();
-  const tiempoTranscurrido = ahora - ultimoEnvio;
-
-  if (tiempoTranscurrido < ESPERA_ENTRE_ENVIOS) {
+  if (ahora - ultimoEnvio < ESPERA_ENTRE_ENVIOS) {
     mostrarEstado("Esperá un instante antes de volver a enviar.");
     return;
   }
 
-  // Bloquear el botón mientras se procesa la consulta.
+  // Bloquear controles mientras se procesa la consulta.
   enviando = true;
   ultimoEnvio = Date.now();
   botonEnviar.disabled = true;
@@ -227,22 +309,23 @@ formulario.addEventListener("submit", async (evento) => {
 
     if (error.name === "AbortError") {
       agregarMensaje(
-        "La consulta tardó demasiado en responder. Intentá nuevamente.",
+        "Tiempo de espera agotado (30 segundos). Intentá nuevamente.",
         "agente"
       );
-      mostrarEstado("Tiempo de espera agotado.");
+      mostrarEstado("Error: tiempo agotado.");
+    } else if (error.esErrorServidor) {
+      agregarMensaje(error.message, "agente");
+      mostrarEstado("Error del servidor de Make.");
     } else {
-      console.error("Error al consultar el agente:", error);
-
+      console.error("Error de red:", error);
       agregarMensaje(
-        "No pude obtener una respuesta en este momento. " +
-        "Verificá la conexión del webhook e intentá nuevamente.",
+        "Error de red: no se pudo conectar con Make. Revisá tu conexión a internet.",
         "agente"
       );
-      mostrarEstado("No se pudo completar la consulta.");
+      mostrarEstado("Error de conexión.");
     }
   } finally {
-    // Restaurar los controles incluso si ocurre un error.
+    // Restaurar controles pase lo que pase.
     quitarCarga();
     enviando = false;
     botonEnviar.disabled = false;
@@ -252,7 +335,10 @@ formulario.addEventListener("submit", async (evento) => {
   }
 });
 
-// Preparar el campo al cargar la página.
+// Preparar el campo y verificar configuración al cargar.
 actualizarContador();
 ajustarEntrada();
+if (!webhookConfigurado()) {
+  mostrarEstado("Falta pegar la URL de tu webhook en config.js");
+}
 entrada.focus();
